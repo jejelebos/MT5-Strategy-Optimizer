@@ -13,6 +13,215 @@ try:
 except ImportError:
     mt5 = None
 
+# Template de base pour le fichier MQ5
+MQ5_TEMPLATE = """
+//+------------------------------------------------------------------+
+//|                                              OptimizedStrategy.mq5 |
+//|                                  Copyright 2024, Votre Nom         |
+//|                                                                   |
+//+------------------------------------------------------------------+
+#property copyright "Copyright 2024"
+#property link      ""
+#property version   "1.00"
+#property strict
+
+#include <Trade/Trade.mqh>
+
+CTrade trade;
+
+// Paramètres d'entrée
+input double   LotSize = {lot_size};           // Taille du lot
+input int      StopLoss = {stop_loss};         // Stop Loss en pips
+input int      TakeProfit = {take_profit};     // Take Profit en pips
+input bool     UseTrailingStop = {trailing_stop};  // Utiliser Trailing Stop
+input int      TrailingDistance = {trailing_distance};  // Distance du Trailing Stop
+input int      MaxTradesPerDay = {max_trades_per_day};  // Nombre max de trades par jour
+input int      StartHour = {entry_hour_min};    // Heure de début de trading
+input int      EndHour = {entry_hour_max};      // Heure de fin de trading
+input bool     WeekendTrading = {weekend_trading};  // Trading le weekend
+input double   MaxDrawdownPercent = {max_drawdown_exit};  // Drawdown max en %
+input int      MaxConsecutiveLosses = {consecutive_losses_exit};  // Pertes consécutives max
+input double   DailyProfitTarget = {profit_target_daily};  // Objectif de profit quotidien en %
+
+// Variables globales
+int handle;
+int tradesToday = 0;
+double initialBalance;
+datetime lastTradeDate;
+int consecutiveLosses = 0;
+
+//+------------------------------------------------------------------+
+//| Expert initialization function                                     |
+//+------------------------------------------------------------------+
+int OnInit()
+{{
+    // Initialisation
+    initialBalance = AccountInfoDouble(ACCOUNT_BALANCE);
+    lastTradeDate = 0;
+    
+    return(INIT_SUCCEEDED);
+}}
+
+//+------------------------------------------------------------------+
+//| Expert deinitialization function                                   |
+//+------------------------------------------------------------------+
+void OnDeinit(const int reason)
+{{
+    // Nettoyage
+}}
+
+//+------------------------------------------------------------------+
+//| Expert tick function                                              |
+//+------------------------------------------------------------------+
+void OnTick()
+{{
+    // Vérifier si on peut trader
+    if(!CanTrade()) return;
+    
+    // Vérifier les conditions d'entrée
+    if(CanOpenNewPosition())
+    {{
+        if({direction_condition})
+        {{
+            OpenPosition();
+        }}
+    }}
+    
+    // Gérer les positions existantes
+    ManageOpenPositions();
+}}
+
+//+------------------------------------------------------------------+
+//| Vérifie si on peut trader                                         |
+//+------------------------------------------------------------------+
+bool CanTrade()
+{{
+    datetime currentTime = TimeCurrent();
+    MqlDateTime time;
+    TimeToStruct(currentTime, time);
+    
+    // Vérifier l'heure de trading
+    if(time.hour < StartHour || time.hour > EndHour)
+        return false;
+        
+    // Vérifier le weekend
+    if(!WeekendTrading && (time.day_of_week == 0 || time.day_of_week == 6))
+        return false;
+        
+    // Vérifier le nombre de trades par jour
+    MqlDateTime lastTime;
+    TimeToStruct(lastTradeDate, lastTime);
+    if(time.day != lastTime.day)
+    {{
+        tradesToday = 0;
+    }}
+    
+    if(tradesToday >= MaxTradesPerDay)
+        return false;
+        
+    // Vérifier le drawdown
+    double currentBalance = AccountInfoDouble(ACCOUNT_BALANCE);
+    double drawdown = (initialBalance - currentBalance) / initialBalance * 100;
+    if(drawdown > MaxDrawdownPercent)
+        return false;
+        
+    return true;
+}}
+
+//+------------------------------------------------------------------+
+//| Vérifie si on peut ouvrir une nouvelle position                   |
+//+------------------------------------------------------------------+
+bool CanOpenNewPosition()
+{{
+    if(PositionsTotal() > 0)
+        return false;
+        
+    if(consecutiveLosses >= MaxConsecutiveLosses)
+        return false;
+        
+    return true;
+}}
+
+//+------------------------------------------------------------------+
+//| Conditions de signal                                              |
+//+------------------------------------------------------------------+
+bool IsLongSignal()
+{{
+    // À implémenter selon votre stratégie
+    return false;
+}}
+
+bool IsShortSignal()
+{{
+    // À implémenter selon votre stratégie
+    return false;
+}}
+
+//+------------------------------------------------------------------+
+//| Ouvre une nouvelle position                                       |
+//+------------------------------------------------------------------+
+void OpenPosition()
+{{
+    double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+    double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+    
+    if({direction} == "long")
+    {{
+        double sl = ask - StopLoss * _Point;
+        double tp = ask + TakeProfit * _Point;
+        trade.Buy(LotSize, _Symbol, ask, sl, tp, "Optimized Strategy");
+    }}
+    else if({direction} == "short")
+    {{
+        double sl = bid + StopLoss * _Point;
+        double tp = bid - TakeProfit * _Point;
+        trade.Sell(LotSize, _Symbol, bid, sl, tp, "Optimized Strategy");
+    }}
+    
+    tradesToday++;
+    lastTradeDate = TimeCurrent();
+}}
+
+//+------------------------------------------------------------------+
+//| Gère les positions ouvertes                                       |
+//+------------------------------------------------------------------+
+void ManageOpenPositions()
+{{
+    if(!UseTrailingStop) return;
+    
+    for(int i = PositionsTotal() - 1; i >= 0; i--)
+    {{
+        if(PositionSelectByTicket(PositionGetTicket(i)))
+        {{
+            if(PositionGetString(POSITION_SYMBOL) == _Symbol)
+            {{
+                double currentSL = PositionGetDouble(POSITION_SL);
+                double currentTP = PositionGetDouble(POSITION_TP);
+                double openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
+                double currentPrice = PositionGetDouble(POSITION_PRICE_CURRENT);
+                
+                if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY)
+                {{
+                    double newSL = currentPrice - TrailingDistance * _Point;
+                    if(newSL > currentSL)
+                    {{
+                        trade.PositionModify(PositionGetTicket(i), newSL, currentTP);
+                    }}
+                }}
+                else
+                {{
+                    double newSL = currentPrice + TrailingDistance * _Point;
+                    if(newSL < currentSL || currentSL == 0)
+                    {{
+                        trade.PositionModify(PositionGetTicket(i), newSL, currentTP);
+                    }}
+                }}
+            }}
+        }}
+    }}
+}}
+"""
+
 class StrategyOptimizer:
     def __init__(self, data_file, initial_balance=env.INITIAL_BALANCE, n_strategies=env.N_STRATEGIES, currency_pair=env.CURRENCY_PAIR):
         """
@@ -539,14 +748,66 @@ class StrategyOptimizer:
         
         print(f"Courbe d'équité enregistrée sous '{env.EQUITY_CURVE_FILE}'")
     
+    def generate_mq5_file(self, result=None):
+        """
+        Génère un fichier MQ5 avec les paramètres optimisés
+        
+        Args:
+            result (dict, optional): Résultat du backtest à utiliser. Si None, utilise la meilleure stratégie.
+        """
+        if result is None:
+            if self.best_strategy is None:
+                print("Aucune stratégie optimisée trouvée. Exécutez run_optimization() d'abord.")
+                return
+            result = self.best_strategy
+            
+        strategy = result['strategy']
+        
+        # Préparer les paramètres pour le template
+        params = {
+            'lot_size': strategy['lot_size'],
+            'stop_loss': int(strategy['stop_loss']),
+            'take_profit': int(strategy['take_profit']),
+            'trailing_stop': 'true' if strategy['trailing_stop'] else 'false',
+            'trailing_distance': int(strategy['trailing_distance']) if strategy['trailing_distance'] is not None else 0,
+            'max_trades_per_day': strategy['max_trades_per_day'],
+            'entry_hour_min': strategy['entry_hour_min'],
+            'entry_hour_max': strategy['entry_hour_max'],
+            'weekend_trading': 'true' if strategy['weekend_trading'] else 'false',
+            'max_drawdown_exit': strategy['max_drawdown_exit'],
+            'consecutive_losses_exit': strategy['consecutive_losses_exit'],
+            'profit_target_daily': strategy['profit_target_daily'],
+            'direction': strategy['direction'],
+            'direction_condition': self._get_direction_condition(strategy['direction'])
+        }
+        
+        # Générer le fichier MQ5
+        mq5_content = MQ5_TEMPLATE.format(**params)
+        
+        # Sauvegarder le fichier
+        output_file = os.path.join(env.OUTPUT_DIR, "OptimizedStrategy.mq5")
+        with open(output_file, 'w') as f:
+            f.write(mq5_content)
+            
+        print(f"Fichier MQ5 généré avec succès : {output_file}")
+        
+    def _get_direction_condition(self, direction):
+        """Retourne la condition de direction pour le template MQ5"""
+        if direction == 'long':
+            return "IsLongSignal()"  # À implémenter selon votre stratégie
+        elif direction == 'short':
+            return "IsShortSignal()"  # À implémenter selon votre stratégie
+        else:  # both
+            return "IsLongSignal() || IsShortSignal()"  # À implémenter selon votre stratégie
+
     def summarize_results(self):
         """
-        Résume les résultats de l'optimisation et affiche les paramètres de la meilleure stratégie
+        Résume les résultats de l'optimisation et génère le fichier MQ5
         """
         if self.best_strategy is None:
             print("Aucune stratégie optimisée trouvée. Exécutez run_optimization() d'abord.")
             return
-        
+            
         strategy = self.best_strategy['strategy']
         
         print("\n" + "="*80)
@@ -589,6 +850,9 @@ class StrategyOptimizer:
         
         # Générer le graphique
         self.plot_equity_curve()
+        
+        # Générer le fichier MQ5
+        self.generate_mq5_file()
         
         # Sauvegarder les résultats détaillés
         self.save_detailed_results()
