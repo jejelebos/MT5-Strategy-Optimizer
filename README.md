@@ -21,8 +21,8 @@ Un outil puissant pour optimiser les stratégies de trading algorithmique en uti
 
 1. Clonez le dépôt :
 ```bash
-git clone https://github.com/votre-username/strategy-optimizer.git
-cd strategy-optimizer
+git clone https://github.com/jejelebos/MT5-Strategy-Optimizer.git
+cd MT5-Strategy-Optimizer
 ```
 
 2. Créez un environnement virtuel et activez-le :
@@ -32,11 +32,6 @@ python -m venv venv
 venv\Scripts\activate
 # Sur Linux/Mac
 source venv/bin/activate
-```
-
-3. Installez les dépendances :
-```bash
-pip install -r requirements.txt
 ```
 
 ## ⚙️ Configuration
@@ -89,7 +84,6 @@ Vous pouvez ajuster les poids des différentes métriques dans `env.py` :
 strategy-optimizer/
 ├── strategy_optimizer.py  # Script principal
 ├── env.py                # Configuration
-├── requirements.txt      # Dépendances
 ├── README.md            # Documentation
 └── output/              # Dossier des résultats
     ├── equity_curve.png
